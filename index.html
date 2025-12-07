@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>三重先嗇宮 - 對場作數位導覽</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+        
+        :root { 
+            --temple-red: #8B0000;
+            --stone-bg: #f5f5f0;
+        }
+
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: var(--stone-bg);
+            /* Background Pattern */
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d4c5a9' fill-opacity='0.2'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            overflow-x: hidden; 
+            min-height: 100vh;
+        }
+        
+        .serif { font-family: 'Noto Serif TC', serif; }
+
+        /* --- Scene Transitions --- */
+        .scene {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            min-height: 100vh;
+            transition: all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 0;
+            transform: scale(0.95);
+        }
+
+        .scene.active {
+            position: relative; 
+            opacity: 1;
+            pointer-events: auto;
+            z-index: 10;
+            transform: scale(1);
+        }
+
+        .scene.scale-down { transform: scale(0.9); opacity: 0; position: absolute; }
+        .scene.scale-up { transform: scale(1.1); opacity: 0; position: absolute; }
+
+        /* --- Floor Plan Interactions --- */
+        .floorplan-region {
+            position: absolute;
+            cursor: pointer;
+            z-index: 20;
+            transition: background-color 0.3s, box-shadow 0.3s, border-color 0.3s;
+            background-color: transparent; 
+            border: 1px solid transparent;
+            transform-origin: center center;
+        }
+        
+        .floorplan-region:hover, .floorplan-region.selected, .floorplan-region.linked-hover {
+            background-color: rgba(220, 38, 38, 0.3);
+            box-shadow: 0 0 20px rgba(220, 38, 38, 0.4);
+            border: 1px solid rgba(220, 38, 38, 0.6);
+            border-radius: 4px;
+        }
+
+        .region-label-popup {
+            position: absolute;
+            background: white;
+            padding: 8px 16px;
+            border-radius: 50px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            font-weight: bold;
+            font-family: 'Noto Serif TC', serif;
+            color: var(--temple-red);
+            z-index: 30;
+            transform: translate(-50%, -120%);
+            pointer-events: auto;
+            cursor: pointer;
+            border: 2px solid var(--temple-red);
+            white-space: nowrap;
+            animation: pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        
+        .region-label-popup:hover {
+            background-color: var(--temple-red);
+            color: white;
+        }
+
+        /* --- Game Markers --- */
+        .marker-circle {
+            position: absolute;
+            border: 3px solid #ef4444;
+            /* 保持圓角 50%：如果寬高不同，就會變成橢圓形 */
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            /* ★ 修改：移除 animation ★ */
+        }
+        
+        /* Hitboxes */
+        .hitbox {
+            position: absolute;
+            cursor: pointer; 
+            z-index: 10;
+            background-color: rgba(0,0,0,0); 
+        }
+        /* 已移除 .hitbox:hover 樣式 */
+
+        /* Toast Notification */
+        #toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 50px;
+            font-size: 1rem;
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+            z-index: 100;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        @keyframes pop-in {
+            0% { transform: translate(-50%, -120%) scale(0.8); opacity: 0; }
+            100% { transform: translate(-50%, -120%) scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Toast Notification -->
+    <div id="toast">
+        <i data-lucide="info" class="w-5 h-5 text-yellow-400"></i>
+        <span id="toast-msg">提示訊息</span>
+    </div>
+
+    <!-- Header -->
+    <header class="fixed top-0 left-0 right-0 bg-stone-900/90 backdrop-blur-md text-white shadow-lg z-50">
+        <div class="max-w-7xl mx-auto px-6 py-3 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="bg-red-800 p-1.5 rounded-lg"><i data-lucide="landmark" class="w-6 h-6"></i></div>
+                <h1 class="text-xl font-bold serif tracking-wider">三重先嗇宮 - 對場作導覽</h1>
+            </div>
+            <button onclick="showAboutModal()" class="text-sm bg-stone-800 hover:bg-stone-700 px-3 py-1.5 rounded-full transition flex items-center gap-1">
+                <i data-lucide="info" class="w-4 h-4"></i> 關於
+            </button>
+        </div>
+    </header>
+
+    <!-- SCENE 1: MAIN VIEW (首頁外觀) -->
+    <div id="scene-main" class="scene active flex flex-col items-center pt-24 pb-12 px-4">
+        <div class="w-full max-w-5xl bg-white shadow-2xl rounded-xl overflow-hidden shrink-0 border-4 border-white">
+            <div class="relative w-full aspect-video cursor-pointer group bg-stone-200" onclick="goToFloorPlan()">
+                <img src="1.png" alt="先嗇宮外觀" class="w-full h-full object-cover transition duration-700 group-hover:scale-105" onerror="this.src='https://images.unsplash.com/photo-1599826897556-b9c432a65281?q=80&w=2000&auto=format&fit=crop'; alert('找不到 1.png，已顯示範例圖。');">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-90 group-hover:opacity-70 transition"></div>
+                <div class="absolute bottom-6 left-6 text-white">
+                    
+                    <div class="flex items-center gap-2 text-stone-200 font-bold tracking-wider animate-bounce">
+                        <i data-lucide="mouse-pointer-click"></i> 點擊圖片進入導覽
+                    </div>
+                </div>
+            </div>
+            <div class="p-8 md:p-10 bg-[#fffdf5]">
+                <div class="flex flex-col md:flex-row gap-6">
+                    <div class="hidden md:flex flex-col items-center justify-start pt-2">
+                         <div class="p-3 bg-red-800 text-white rounded-lg shadow-md"><i data-lucide="scroll-text" class="w-8 h-8"></i></div>
+                         <div class="h-full w-0.5 bg-red-200 mt-4 rounded-full"></div>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-2xl font-bold serif text-stone-900 mb-4 flex items-center gap-2">
+                            <span class="md:hidden text-red-800"><i data-lucide="scroll-text"></i></span>
+                            關於「對場作」
+                        </h3>
+                        <div class="prose prose-stone max-w-none text-stone-700 leading-relaxed text-justify space-y-4 text-lg">
+                            <p><span class="font-bold text-red-900">對場作（拚場）</span>也就將廟宇以前後或左右分做兩部分，同時由不同工匠製作，這樣的製作方式也帶有比拼技藝的意味。</p>
+                            <p>兩邊都製作完成後，會由地方耆老或廟方人員評斷輸贏，贏家將會獲得廟方的紅包，所以對場作可以說是雙方工匠傾盡心力之作。</p>
+                            <p class="p-4 bg-white border-l-4 border-red-800 shadow-sm rounded-r-lg">三重先嗇宮的龍邊由新莊在地的 <span class="font-bold text-red-700 text-xl mx-1">吳海桐</span> 率領弟子製作，虎邊由 <span class="font-bold text-yellow-700 text-xl mx-1">陳應彬</span> 率領弟子建造。</p>
+                        </div>
+                        <button onclick="goToFloorPlan()" class="mt-8 px-8 py-3 bg-stone-900 hover:bg-stone-700 text-white font-bold rounded-full transition shadow-lg flex items-center gap-2 group w-full md:w-auto justify-center">
+                            進入平面圖導覽 <i data-lucide="arrow-right" class="group-hover:translate-x-1 transition-transform"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCENE 2: FLOOR PLAN (平面圖導覽) -->
+    <div id="scene-floorplan" class="scene scale-up flex flex-col pt-16 pb-10">
+        <div class="bg-stone-800 text-stone-200 px-6 py-2 flex justify-between items-center text-sm z-20 sticky top-16 shadow-md">
+            <button onclick="backToMain()" class="hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i> 返回外觀</button>
+            <p><i data-lucide="map-pin" class="w-4 h-4 inline mr-1"></i>請點選平面圖上的區域</p>
+        </div>
+        
+        <div class="flex-1 relative bg-stone-200 flex items-center justify-center p-4 min-h-[600px]">
+            <div id="floorplan-container" class="relative w-full max-w-4xl shadow-xl rounded-xl overflow-hidden border-4 border-stone-400 bg-[#f0eadd] transition-transform duration-700">
+                <img src="2.png" alt="先嗇宮平面圖" class="w-full h-full object-contain select-none pointer-events-none" onerror="this.parentElement.style.background='#ddd'; this.alt='找不到 2.png。';">
+                
+                <!-- Floor Plan Hotspots -->
+                <div class="floorplan-region" data-id="front_hall" style="top: 63%; left: 34%; width: 18%; height: 13%; transform: rotate(45deg);" onclick="selectRegion('front_hall', this)"></div>
+                <div class="floorplan-region" data-id="left_wing" style="top: 24%; left: 32%; width: 20%; height: 12%; transform: rotate(-45deg);" onclick="selectRegion('left_wing', this)"></div>
+                <div class="floorplan-region" data-id="right_wing" style="top: 58%; left: 53%; width: 20%; height: 12%; transform: rotate(-45deg);" onclick="selectRegion('right_wing', this)"></div>
+                <div class="floorplan-region" data-id="back_hall" style="top: 17%; left: 57%; width: 15%; height: 15%; transform: rotate(45deg);" onclick="selectRegion('back_hall', this)"></div>
+                <div class="floorplan-region" data-id="guoshui" style="top: 45%; left: 28%; width: 7%; aspect-ratio: 1/1; transform: rotate(45deg);" onclick="selectRegion('guoshui', this)"></div>
+                <div class="floorplan-region" data-id="guoshui" style="top: 80%; left: 50%; width: 7%; aspect-ratio: 1/1; transform: rotate(45deg);" onclick="selectRegion('guoshui', this)"></div>
+
+                <div id="region-popup" class="hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCENE 3: GAME VIEW (多關卡遊戲) -->
+    <div id="scene-game" class="scene scale-up bg-stone-100 flex flex-col pt-16 pb-12 z-20">
+        <div class="bg-white shadow-sm border-b border-stone-200 px-4 py-3 flex justify-between items-center shrink-0 sticky top-16 z-30">
+            <!-- Left: Back Button Only (Title Removed) -->
+            <div class="flex items-center gap-4">
+                <button onclick="backToFloorPlan()" class="p-2 hover:bg-stone-100 rounded-full transition text-stone-600 flex items-center gap-1">
+                    <i data-lucide="arrow-left"></i> <span class="hidden md:inline">返回平面圖</span>
+                </button>
+            </div>
+            
+            <!-- Center: Level Navigation -->
+            <div class="flex items-center gap-2 bg-stone-100 p-1 rounded-lg">
+                <button onclick="changeLevel(-1)" class="p-1 hover:bg-stone-200 rounded text-stone-600 disabled:opacity-30" id="btn-prev">
+                    <i data-lucide="chevron-left"></i>
+                </button>
+                <span class="text-sm font-mono font-bold w-16 text-center" id="level-indicator">1 / 1</span>
+                <button onclick="changeLevel(1)" class="p-1 hover:bg-stone-200 rounded text-stone-600 disabled:opacity-30" id="btn-next">
+                    <i data-lucide="chevron-right"></i>
+                </button>
+            </div>
+
+            <!-- Right: Score -->
+            <div class="bg-stone-100 px-4 py-2 rounded-lg border border-stone-200 hidden md:flex">
+                <span class="text-xs text-stone-500 uppercase tracking-wider mr-2">本圖進度</span>
+                <div class="flex items-center gap-1">
+                    <span id="score-display" class="text-lg font-bold text-red-700 font-mono">0</span>
+                    <span class="text-stone-400">/</span>
+                    <span id="total-display" class="text-stone-600 font-mono">1</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="w-full max-w-7xl mx-auto p-4 flex flex-col md:flex-row gap-6 items-start">
+            
+            <!-- 左圖區域 (獨立卡片) -->
+            <div class="w-full md:w-1/2 bg-white shadow-xl rounded-2xl overflow-hidden border border-stone-200 flex flex-col">
+                <div class="bg-red-50 border-b border-red-100 p-3 text-center">
+                    <span class="font-bold text-red-800 text-lg flex items-center justify-center gap-2">
+                        <i data-lucide="user"></i> 龍邊 (吳海桐師傅)
+                    </span>
+                </div>
+                <div class="relative bg-stone-100 min-h-[300px] md:min-h-[400px] flex items-center justify-center p-2">
+                    <div class="relative w-full">
+                        <img id="game-img-left" src="" alt="龍邊" class="w-full h-auto object-contain block select-none rounded shadow-sm">
+                        <div id="game-layer-left" class="absolute inset-0 w-full h-full"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右圖區域 (獨立卡片) -->
+            <div class="w-full md:w-1/2 bg-white shadow-xl rounded-2xl overflow-hidden border border-stone-200 flex flex-col">
+                <div class="bg-yellow-50 border-b border-yellow-100 p-3 text-center">
+                    <span class="font-bold text-yellow-800 text-lg flex items-center justify-center gap-2">
+                        <i data-lucide="user"></i> 虎邊 (陳應彬師傅)
+                    </span>
+                </div>
+                <div class="relative bg-stone-100 min-h-[300px] md:min-h-[400px] flex items-center justify-center p-2">
+                    <div class="relative w-full">
+                        <img id="game-img-right" src="" alt="虎邊" class="w-full h-auto object-contain block select-none rounded shadow-sm">
+                        <div id="game-layer-right" class="absolute inset-0 w-full h-full"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- MODALS -->
+    <div id="detail-modal" class="fixed inset-0 z-50 flex items-center justify-center px-4 opacity-0 pointer-events-none transition-all duration-300 bg-black/60 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-lg rounded-xl shadow-2xl overflow-hidden transform scale-95 transition-all duration-300 flex flex-col max-h-[90vh]">
+            <div class="h-32 bg-stone-800 relative shrink-0">
+                <img id="modal-img" src="" class="w-full h-full object-cover opacity-60">
+                <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent"></div>
+                <div class="absolute bottom-4 left-6">
+                    <h3 id="modal-title" class="text-2xl font-bold text-white serif">部件名稱</h3>
+                </div>
+            </div>
+            <div class="p-6 overflow-y-auto space-y-4">
+                <div>
+                    <h4 class="text-stone-900 font-bold mb-1 flex items-center gap-2"><i data-lucide="git-compare" class="w-4 h-4 text-red-600"></i> 對場差異解析</h4>
+                    <p id="modal-diff-desc" class="text-stone-600 text-sm text-justify bg-stone-50 p-3 rounded whitespace-pre-line leading-relaxed"></p>
+                </div>
+            </div>
+            <div class="p-3 border-t bg-stone-50 shrink-0">
+                <button onclick="closeDetailModal()" class="w-full py-2 bg-stone-900 text-white font-bold rounded hover:bg-stone-800 transition">關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="about-modal" class="fixed inset-0 z-50 flex items-center justify-center px-4 hidden bg-black/70 backdrop-blur-sm">
+        <div class="bg-[#fffdf5] w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl p-6 relative border-t-4 border-red-800">
+            <button onclick="document.getElementById('about-modal').style.display='none'" class="absolute top-3 right-3"><i data-lucide="x"></i></button>
+            
+            <h3 class="text-lg font-bold serif mb-2 text-stone-800">參考文獻</h3>
+            <ul class="text-xs text-stone-500 space-y-2 list-disc pl-4 mb-4 text-justify">
+                <li>張志源（2018）。《臺灣廟宇建築與裝飾：神農大帝.保生大帝.文昌帝君.清水祖師篇》。揚智文化事業股份有限公司。</li>
+                <li>李乾朗（2001）。《精雕細琢臺灣廟宇裝飾》。國立傳統藝術中心籌備處。</li>
+                <li>陳清香（2008）。《台灣佛教美術：建築篇》。藝術家出版。</li>
+                <li>康鍩錫（2004）。《台灣廟宇圖鑑》。貓頭鷹出版。</li>
+                <li>符宏仁、梁明昌（2003）。《臺北縣縣定古蹟三重先嗇宮調查研究及修護計畫》（初版）。臺北縣板橋市臺北縣文化局。</li>
+                <li>符宏仁建築師事務所（2005）。《臺北縣縣定古蹟三重先嗇宮修復工程工作報告書暨施工紀錄》（初版）。臺北縣板橋市北縣文化局。</li>
+                <li>三重埔文史研究協會（2011）。《三重先嗇宮建築裝飾藝術暨楹聯調查研究》。新北市三重區 : 臺北縣三重埔文史研究協會。</li>
+            </ul>
+            
+            <p class="text-xs text-stone-400 border-t border-stone-200 pt-2 mt-2">
+                照片為2025年11月29日作者親攝，圖片為作者親繪。
+            </p>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        // --- 詳細說明資料庫 (Detail Data) ---
+        // ★ targets 陣列設定多重碰撞箱 (x, y, w, h 為 %)
+        // found: false 用於追蹤每個子項目是否已被找到
+        const detailMap = {
+            1: {
+                title: "鳳凰托木",
+                desc: `兩側差異主要在頭部及翎羽之上。
+虎邊的鳳凰頭部較低且頭部上的鬃毛較不明顯；而龍邊的鳳凰頭部較高展現了頸部的曲線，頭上的鬃毛較長，顯得更有威儀。
+
+在翎羽上虎邊的羽毛多層且呈弧形延展，尾羽則微微弧向內收束。
+龍邊羽毛直直向上延伸，而尾羽似炎捲曲華麗。`,
+                targets: [ { left: { x: 20, y: 50, w: 50, h: 20 }, right: { x: 25, y: 45, w: 50, h: 20 }, found: false } ]
+            },
+            2: {
+                title: "螭虎栱",
+                desc: `龍邊上承長方形斗座，螭虎整體捲毛較多，角及頸較短，栱身圓潤如半圓。
+
+虎邊上承正方形斗座，螭虎裝飾線條簡約，角、頸、栱身修長。`,
+                targets: [ { left: { x: 45, y: 40, w: 30, h: 20 }, right: { x: 30, y: 40, w: 30, h: 20 }, found: false } ]
+            },
+            4: {
+                title: "看架",
+                desc: `龍邊（左）的採用斜栱的形式製作，在豎材上則用鳥雀來裝飾。
+                
+而虎邊（右）則以兩個一斗升三的組合裝飾，這也是先嗇宮中對場作最明顯處之一。`,
+                targets: [ { left: { x: 5, y: 40, w: 80, h: 20 }, right: { x: 5, y: 40, w: 80, h: 20 }, found: false } ]
+            },
+            5: {
+                title: "身堵",
+                desc: `兩面石堵都採用透雕的方式製作。
+                
+龍邊的身堵，兩邊同樣紋有螭龍圍爐的紋路，在中間上邊的香爐之處，虎邊為原型的圖騰，龍邊則為一個獸字的圖騰。`,
+                targets: [ { left: { x: 50, y: 30, w: 10, h: 7 }, right: { x: 37, y: 30, w: 10, h: 7 }, found: false } ]
+            },
+            6: {
+                title: "吊籃",
+                desc: `【龍邊-吊籃】
+採用透雕技法，吊籃本身是圓形鏤空的，用線條呈現編織的紋樣。周邊墜有罄牌流蘇象徵吉慶之意。
+
+【虎邊-吊籃】
+此邊吊籃為實雕技法，籃身採用起突的技法。在籃身八面雕有四季花卉，三個吊籃的底部各雕有菊花、太陽花、牡丹裝飾。而此側的吊籃為中國結的流蘇點綴。`,
+                targets: [ { left: { x: 5, y: 30, w: 80, h: 20 }, right: { x: 5, y: 30, w: 90, h: 20 }, found: false } ]
+            },
+            
+            // ★ 修改：編號 7 有 2 個目標點 ★
+            7: {
+                title: "門樓與花磚",
+                desc: `【門樓簷下裝飾】
+虎邊用兩個蓮花斗座裝點；龍邊則用螭虎栱及螭虎連托交叉裝飾，並搭配各種花卉、人物、獸形的金色豎材，顯得華麗繁複。
+
+【花磚】
+兩側花磚在顏色上看起來大致相同，但在花樣上卻略有不同，中間白色的部分皆為菊花。
+龍邊藍色花磚為三朵百合花，虎邊則為一朵牡丹花。`,
+                targets: [ 
+                    { left: { x: 30, y: 30, w: 20, h: 20 }, right: { x: 30, y: 30, w: 20, h: 20 }, found: false }, // 門樓
+                    { left: { x: 60, y: 60, w: 15, h: 15 }, right: { x: 60, y: 60, w: 15, h: 15 }, found: false }  // 花磚
+                ]
+            },
+            
+            8: {
+                title: "垂花與吊籃",
+                desc: `【虎邊-蓮花垂花】
+虎邊蓮花雕飾簡潔，僅在花葉邊緣描邊畫線。這簡潔的雕飾，正如蓮花裝飾象徵清廉之意，同時在佛教文化中蓮花也是聖潔、淨土的象徵。
+
+【龍邊-八角吊籃】
+龍邊的蓮花雕飾細膩、繁複，在吊籃的五面上雕有花卉，六個角上也墜有流蘇，從上可以觀察吊籃上裝有桃子，可表長壽之意。`,
+                targets: [ { left: { x: 45, y: 12, w: 20, h: 17 }, right: { x: 37, y: 23, w: 20, h: 12 }, found: false } ]
+            },
+            10: {
+                title: "螭虎斗栱",
+                desc: `虎邊上為牡丹碗造型的斗座，螭虎的形象也較為圖樣化，身形富有曲線，身上的裝飾較少。
+                
+龍邊上為長方形的斗座，螭虎的形象較爲寫實，周身布滿鱗片，並畫出金色的爪子，鬃毛也纖長捲曲，雕工細膩。`,
+                targets: [ { left: { x: 40, y: 40, w: 20, h: 20 }, right: { x: 40, y: 40, w: 20, h: 20 }, found: false } ]
+            },
+            
+            // ★ 修改：編號 11 有 3 個目標點 ★
+            11: {
+                title: "牡丹垂花、連托與托木",
+                desc: `【牡丹垂花】
+兩側的垂花差異不大，只在花心部分龍邊為透雕，虎邊為實雕。
+
+【連托】
+龍邊：在左右兩側的連托透雕有牡丹及菊花，而中間透雕有鷹、雄獅、錦雞，用以諧音英雄奪錦，動物姿態栩栩如生。
+虎邊：在三面連托都透雕雕有蓮花捲草紋，紋樣簡潔流暢。
+
+【托木（雀替）】
+虎邊同樣使用蓮花捲草紋，而龍邊左右各雕有牡丹及菊花。`,
+                targets: [ 
+                    { left: { x: 5, y: 38, w: 80, h: 8 }, right: { x: 20, y: 38, w: 80, h: 8 }, found: false }, // 牡丹垂花
+                    { left: { x: 20, y: 50, w: 55, h: 8 }, right: { x: 30, y: 48, w: 55, h: 8 }, found: false }, // 連托
+                    { left: { x: 10, y: 58, w: 80, h: 10 }, right: { x: 20, y: 53, w: 75, h: 10 }, found: false }  // 托木
+                ]
+            },
+            
+            12: {
+                title: "樓架",
+                desc: `虎邊採用一個蓮花斗座，並且採用一斗升三的形式組合，兩旁的托木也透雕蓮花捲草紋。
+                
+龍邊則採用兩個蓮花斗座，一斗升三輔以斜栱的形式搭建，托木也採用蓮花捲草紋。`,
+                targets: [ { left: { x: 40, y: 40, w: 20, h: 20 }, right: { x: 40, y: 40, w: 20, h: 20 }, found: false } ]
+            },
+            13: {
+                title: "迴廊捲棚架",
+                desc: `虎邊以兩個木瓜狀瓜筒，銜接通樑與束木，通樑下的員光則以彩繪的方式繪有繪畫。
+                
+龍邊則以一斗升三的形式，而斗座則以蓮花為底，員光則以透雕唐草紋的方式裝飾。`,
+                targets: [ { left: { x: 40, y: 40, w: 20, h: 20 }, right: { x: 40, y: 40, w: 20, h: 20 }, found: false } ]
+            },
+            14: {
+                title: "吊籃",
+                desc: `龍邊的兩個吊籃都墜有流蘇，右一的吊籃為實心的並在四周雕有四季花卉，而右二的吊籃則採用邊織的紋樣，也同樣墜有罄牌流蘇裝飾。
+
+虎邊的兩個吊籃都沒有流蘇，左一的吊籃採用仿藤編的鏤空形式，左二的吊籃則採用仿竹編的鏤空形式，在吊籃中還有一隻木雕小鳥在籃內作為裝飾。`,
+                targets: [ { left: { x: 40, y: 40, w: 20, h: 20 }, right: { x: 40, y: 40, w: 20, h: 20 }, found: false } ]
+            },
+            
+            // ★ 修改：編號 16 有 2 個目標點 ★
+            16: {
+                title: "瓜筒",
+                desc: `龍邊瓜筒上為三角形的罄牌，而瓜筒上的豎材為飛天仙女。
+                
+而虎邊瓜筒上的圓形罄牌，中則有老鼠的紋樣，瓜身上也雕刻了老鼠吃瓜的紋樣，有多子多福的寓意，豎材則為封神演義中的雷震子。`,
+                targets: [ 
+                    { left: { x: 40, y: 20, w: 20, h: 20 }, right: { x: 40, y: 20, w: 20, h: 20 }, found: false },
+                    { left: { x: 40, y: 60, w: 20, h: 20 }, right: { x: 40, y: 60, w: 20, h: 20 }, found: false }
+                ]
+            },
+            
+            17: {
+                title: "廊牆頂部座",
+                desc: `虎邊廊牆頂部為南瓜座。
+                
+而龍邊則為獅座，獅座的雕工細膩，獅子的鬃毛細密，胸前也珮有鈴鐺，伏於牆上之姿也頗為靈動。`,
+                targets: [ { left: { x: 40, y: 40, w: 20, h: 20 }, right: { x: 40, y: 40, w: 20, h: 20 }, found: false } ]
+            },
+            19: {
+                title: "蓮花斗座",
+                desc: `虎門上只有一個斗座以淺浮雕雕刻蓮花，而兩側透雕有捲草紋。
+                
+龍門上也為淺浮雕的蓮花斗座，只是數量變為兩個，兩側透雕的捲草紋更為華麗，下方的通樑彩繪為藍色並透雕捲紋裝飾。`,
+                targets: [ { left: { x: 40, y: 40, w: 20, h: 20 }, right: { x: 40, y: 40, w: 20, h: 20 }, found: false } ]
+            }
+        };
+
+        // Helper to generate Level Data
+        function createLevels(numbers, prefix) {
+            return numbers.map(num => {
+                // Get detail or fallback
+                // Deep copy targets to prevent shared state issues if reused
+                let targets = [];
+                const detail = detailMap[num];
+                
+                if (detail && detail.targets) {
+                    // Deep copy array of objects
+                    targets = JSON.parse(JSON.stringify(detail.targets));
+                } else {
+                    // Default single target
+                    targets = [{ 
+                        left: {x:40, y:40, w:20, h:20}, 
+                        right: {x:40, y:40, w:20, h:20}, 
+                        found: false 
+                    }];
+                }
+                
+                const title = detail ? detail.title : `項目 ${num}`;
+                const desc = detail ? detail.desc : "暫無詳細說明";
+
+                return {
+                    id: `${prefix}_${num}`,
+                    imageLeft: `${num}.龍.jpg`,
+                    imageRight: `${num}.虎.jpg`,
+                    title: title,
+                    diffDesc: desc,
+                    targets: targets,
+                    // 'items' is deprecated in this new multi-target logic, but we keep a found flag on level
+                    found: false
+                };
+            });
+        }
+
+        // --- 遊戲資料 ---
+        const gameData = {
+            "front_hall": {
+                name: "三川殿 (前殿)",
+                levels: createLevels([1, 2, 4, 5, 6, 8, 11, 16, 17, 19], "fh")
+            },
+            "back_hall": {
+                name: "後殿",
+                levels: createLevels([10, 14], "bh")
+            },
+            "left_wing": {
+                name: "左護龍",
+                levels: createLevels([12, 13], "wing")
+            },
+            "right_wing": {
+                name: "右護龍",
+                levels: createLevels([12, 13], "wing")
+            },
+            "guoshui": {
+                name: "過水廊",
+                levels: createLevels([7], "gs")
+            }
+        };
+
+        let currentAreaId = null;
+        let currentLevelIndex = 0;
+        let currentScore = 0;
+
+        // --- Scene Management ---
+        function switchScene(fromId, toId, transitionType = 'default') {
+            const fromScene = document.getElementById(fromId);
+            const toScene = document.getElementById(toId);
+            fromScene.classList.remove('active');
+            if (transitionType === 'zoom-in') fromScene.classList.add('scale-up');
+            if (transitionType === 'zoom-out') fromScene.classList.add('scale-down');
+            setTimeout(() => {
+                fromScene.classList.remove('scale-up', 'scale-down');
+                toScene.classList.remove('scale-up', 'scale-down');
+                toScene.classList.add('active');
+            }, 500);
+        }
+
+        function goToFloorPlan() { switchScene('scene-main', 'scene-floorplan', 'zoom-in'); }
+        function backToMain() { hideRegionPopup(); switchScene('scene-floorplan', 'scene-main', 'zoom-out'); }
+        function backToFloorPlan() {
+            switchScene('scene-game', 'scene-floorplan', 'zoom-out');
+            currentAreaId = null;
+            document.getElementById('floorplan-container').style.transform = "scale(1)";
+        }
+
+        // --- Floor Plan Logic ---
+        function selectRegion(areaId, element) {
+            document.querySelectorAll('.floorplan-region').forEach(el => el.classList.remove('selected'));
+            element.classList.add('selected');
+            
+            const data = gameData[areaId];
+            const popup = document.getElementById('region-popup');
+            popup.innerHTML = `${data.name} <i data-lucide="chevron-right" class="inline w-4 h-4 ml-1"></i>`;
+            popup.className = 'region-label-popup';
+            
+            const rect = element.getBoundingClientRect();
+            const containerRect = document.getElementById('floorplan-container').getBoundingClientRect();
+            const topPercent = (rect.top - containerRect.top) / containerRect.height * 100;
+            const leftPercent = (rect.left - containerRect.left + rect.width / 2) / containerRect.width * 100;
+            popup.style.top = topPercent + '%'; popup.style.left = leftPercent + '%';
+            popup.onclick = () => enterGame(areaId);
+            lucide.createIcons();
+        }
+
+        function hideRegionPopup() {
+            document.getElementById('region-popup').className = 'hidden';
+            document.querySelectorAll('.floorplan-region').forEach(el => el.classList.remove('selected'));
+        }
+
+        // --- Game Logic ---
+        function enterGame(areaId) {
+            const data = gameData[areaId];
+            if (!data || !data.levels || data.levels.length === 0) { 
+                alert("此區域資料籌備中！"); return; 
+            }
+            
+            currentAreaId = areaId;
+            currentLevelIndex = 0;
+            hideRegionPopup();
+            document.getElementById('floorplan-container').style.transform = "scale(1.8)";
+            
+            loadLevel(currentLevelIndex); 
+
+            setTimeout(() => { switchScene('scene-floorplan', 'scene-game', 'zoom-in'); }, 400);
+        }
+
+        function changeLevel(delta) {
+            const data = gameData[currentAreaId];
+            const newIndex = currentLevelIndex + delta;
+            
+            if (newIndex >= 0 && newIndex < data.levels.length) {
+                currentLevelIndex = newIndex;
+                loadLevel(currentLevelIndex);
+            }
+        }
+
+        function loadLevel(index) {
+            const data = gameData[currentAreaId];
+            const level = data.levels[index];
+
+            // Removed title update
+            document.getElementById('level-indicator').innerText = `${index + 1} / ${data.levels.length}`;
+            
+            document.getElementById('btn-prev').disabled = index === 0;
+            document.getElementById('btn-next').disabled = index === data.levels.length - 1;
+            
+            document.getElementById('game-img-left').src = level.imageLeft;
+            document.getElementById('game-img-right').src = level.imageRight;
+            
+            // Calc found count
+            const foundCount = level.targets.filter(t => t.found).length;
+            const totalCount = level.targets.length;
+            
+            document.getElementById('total-display').innerText = totalCount;
+            document.getElementById('score-display').innerText = foundCount; // Just show local progress
+            
+            renderHitboxes(level.targets);
+        }
+
+        function renderHitboxes(targets) {
+            const leftLayer = document.getElementById('game-layer-left');
+            const rightLayer = document.getElementById('game-layer-right');
+            leftLayer.innerHTML = ''; rightLayer.innerHTML = '';
+            
+            targets.forEach((target, index) => {
+                if(target.found) { 
+                    drawMarker(target, leftLayer, 'left'); 
+                    drawMarker(target, rightLayer, 'right'); 
+                    return; 
+                }
+                
+                // Left Hitbox
+                const boxLeft = document.createElement('div');
+                boxLeft.className = 'hitbox';
+                boxLeft.style.left = target.left.x + '%'; 
+                boxLeft.style.top = target.left.y + '%';
+                boxLeft.style.width = target.left.w + '%'; 
+                boxLeft.style.height = target.left.h + '%';
+                boxLeft.onclick = () => handleFind(index);
+                leftLayer.appendChild(boxLeft);
+
+                // Right Hitbox
+                const boxRight = document.createElement('div');
+                boxRight.className = 'hitbox';
+                boxRight.style.left = target.right.x + '%'; 
+                boxRight.style.top = target.right.y + '%';
+                boxRight.style.width = target.right.w + '%'; 
+                boxRight.style.height = target.right.h + '%';
+                boxRight.onclick = () => handleFind(index);
+                rightLayer.appendChild(boxRight);
+            });
+        }
+
+        function handleFind(targetIndex) {
+            const data = gameData[currentAreaId];
+            const level = data.levels[currentLevelIndex];
+            const target = level.targets[targetIndex];
+            
+            if (target.found) return;
+            
+            // Mark specific target as found
+            target.found = true; 
+            
+            // Visual feedback
+            drawMarker(target, document.getElementById('game-layer-left'), 'left');
+            drawMarker(target, document.getElementById('game-layer-right'), 'right');
+            
+            // Update Score UI
+            const foundCount = level.targets.filter(t => t.found).length;
+            const totalCount = level.targets.length;
+            document.getElementById('score-display').innerText = foundCount;
+
+            // Check if ALL targets in this level are found
+            if (foundCount === totalCount) {
+                // Success! Show modal
+                level.found = true; // Mark level complete
+                setTimeout(() => {
+                    showDetailModal(level.title, level.diffDesc, level.imageLeft);
+                }, 300);
+            } else {
+                // Still items remaining
+                showToast(`太棒了！已找到 ${foundCount}/${totalCount} 處不同，請繼續尋找！`);
+            }
+        }
+
+        // ★ 修改：優化 drawMarker 邏輯，確保先透明再顯示
+        function drawMarker(target, layer, side) {
+            const circle = document.createElement('div');
+            // 尚未加入 marker-circle class，因此不會顯示樣式與動畫
+            circle.className = 'marker-circle';
+            const rect = (side === 'left') ? target.left : target.right;
+
+            // 1. 調整所有參數
+            circle.style.position = 'absolute'; // 確保定位正確，雖然 class 也有
+            circle.style.left = (rect.x + rect.w / 2) + '%';
+            circle.style.top = (rect.y + rect.h / 2) + '%';
+            circle.style.width = (rect.w) + '%';
+            circle.style.height = (rect.h) + '%';
+            // 不再強制 aspect-ratio，允許橢圓形
+            
+            layer.appendChild(circle);
+        }
+
+        function showDetailModal(title, desc, bgImage) {
+            const modal = document.getElementById('detail-modal');
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-img').src = bgImage;
+            document.getElementById('modal-diff-desc').innerText = desc;
+            modal.style.opacity = '1'; modal.style.pointerEvents = 'auto';
+            modal.querySelector('div').style.transform = 'scale(1)';
+        }
+
+        function closeDetailModal() {
+            const modal = document.getElementById('detail-modal');
+            modal.style.opacity = '0'; modal.style.pointerEvents = 'none';
+            modal.querySelector('div').style.transform = 'scale(0.95)';
+        }
+        function showAboutModal() { document.getElementById('about-modal').style.display = 'flex'; }
+
+        // Toast Helper
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-msg').innerText = msg;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 2500);
+        }
+
+        // Init Hover
+        document.addEventListener('DOMContentLoaded', () => {
+             const regions = document.querySelectorAll('.floorplan-region');
+             regions.forEach(region => {
+                 region.addEventListener('mouseenter', () => {
+                     const id = region.dataset.id;
+                     if(id) document.querySelectorAll(`.floorplan-region[data-id="${id}"]`).forEach(el => el.classList.add('linked-hover'));
+                     if (id === 'left_wing' || id === 'right_wing') {
+                         document.querySelector(`.floorplan-region[data-id="left_wing"]`)?.classList.add('linked-hover');
+                         document.querySelector(`.floorplan-region[data-id="right_wing"]`)?.classList.add('linked-hover');
+                     }
+                 });
+                 region.addEventListener('mouseleave', () => document.querySelectorAll('.floorplan-region').forEach(el => el.classList.remove('linked-hover')));
+             });
+        });
+    </script>
+</body>
+</html>
